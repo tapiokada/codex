@@ -3,19 +3,19 @@ import { createHash, createHmac, randomUUID, randomBytes, timingSafeEqual } from
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { rules } from './config.js';
-import { samplePack } from './questions.js';
+import { studyPack } from './questions.js';
 const hash = v => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const iso = t => new Date(t).toISOString();
 class Rejection extends Error { constructor(reason,status=409){super(reason);this.status=status;} }
 export class Engine {
- constructor(path='data/quest.sqlite', {now=Date.now, failpoint=()=>{}}={}) {
+ constructor(path='data/quest.sqlite', {now=Date.now, failpoint=()=>{}, initialPack=studyPack}={}) {
   this.now=now; this.failpoint=failpoint;
   if(path!==':memory:') mkdirSync(dirname(path),{recursive:true});
   this.db=new DatabaseSync(path); this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
   this.db.exec(`CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
    CREATE TABLE IF NOT EXISTS commands (key TEXT PRIMARY KEY, request_hash TEXT NOT NULL, response TEXT NOT NULL);
    CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT NOT NULL);`);
-  if(!this.db.prepare('SELECT 1 FROM state').get()) this.save({schema_version:1,user_id:'local-learner',experience:0,level:1,active_pack:samplePack.version,packs:{[samplePack.version]:samplePack},sessions:[],attempts:[],progress:{}});
+  if(!this.db.prepare('SELECT 1 FROM state').get()) this.save({schema_version:1,user_id:'local-learner',experience:0,level:1,active_pack:initialPack.version,packs:{[initialPack.version]:initialPack},sessions:[],attempts:[],progress:{}});
   if(path===':memory:') this.key=randomBytes(32); else {
    const keyPath=dirname(path)+'/backup.key';
    if(!existsSync(keyPath)) writeFileSync(keyPath,randomBytes(32),{mode:0o600,flag:'wx'});
@@ -124,20 +124,24 @@ export class Engine {
   }
   x.current++;
   if(x.hp===0)this.finish(s,x,'lost');else if(x.current===x.questions.length)this.finish(s,x,boss&&this.stats(s,x).correct_count<x.required_correct_count?'lost':'won');
-  return {event:result==='unanswered'?'unanswered_accepted':boss?'boss_answer_accepted':'answer_accepted',attempt:a,correct:q.correct,explanation:q.explanation};
+  return {event:result==='unanswered'?'unanswered_accepted':boss?'boss_answer_accepted':'answer_accepted',attempt:a,correct:q.correct,...this.review(q)};
  }
  validatePack(p){
   if(!p||typeof p.version!=='string'||!p.version||p.version.length>100||p.schema_version!==1||p.app_version!==1||!Array.isArray(p.questions)||!p.questions.length||p.questions.length>2000)throw new Rejection('validation_failed',400);
   const ids=new Set();for(const q of p.questions){
    if(!q||typeof q.id!=='string'||!q.id||['__proto__','constructor','prototype'].includes(q.id)||ids.has(q.id)||!Number.isInteger(q.revision)||q.revision<1||!['practice','domain_boss','final_boss','diagnostic'].includes(q.pool)||!['single','multiple'].includes(q.type)||typeof q.text!=='string'||!q.text||typeof q.domain!=='string'||typeof q.explanation!=='string'||!Array.isArray(q.choices)||q.choices.length<2||!Array.isArray(q.correct)||!q.correct.length)throw new Rejection('validation_failed',400);
+   if(q.choice_explanations!==undefined && (!q.choice_explanations||Array.isArray(q.choice_explanations)||q.choices.some(c=>typeof q.choice_explanations[c.id]!=='string'||!q.choice_explanations[c.id].trim())||Object.keys(q.choice_explanations).length!==q.choices.length))throw new Rejection('validation_failed',400);
+   if(q.sources!==undefined && (!Array.isArray(q.sources)||q.sources.some(source=>{try{return typeof source.title!=='string'||!source.title.trim()||typeof source.url!=='string'||![source.url,source.source_url].filter(Boolean).every(link=>{const u=new URL(link);return u.protocol==='https:'&&!u.username&&!u.password;});}catch{return true;}})))throw new Rejection('validation_failed',400);
+   if(q.difficulty!==undefined&&!['intermediate','advanced'].includes(q.difficulty))throw new Rejection('validation_failed',400);
    ids.add(q.id);const choices=new Set(q.choices.map(c=>c.id));if(choices.size!==q.choices.length||q.choices.some(c=>typeof c.id!=='string'||typeof c.text!=='string')||new Set(q.correct).size!==q.correct.length||q.correct.some(c=>!choices.has(c))||(q.type==='single'&&q.correct.length!==1))throw new Rejection('validation_failed',400);
   }
  }
+ review(q){return {text:q.text,domain:q.domain,explanation:q.explanation,choices:q.choices,choice_explanations:q.choice_explanations??null,takeaway:q.takeaway??null,sources:q.sources??[],objective:q.objective??null,difficulty:q.difficulty??null};}
  snapshot(){const s=this.load();const active=s.sessions.find(x=>x.status==='in_progress');const pack=s.packs[s.active_pack];
   const progress=pack.questions.filter(q=>q.pool==='practice').map(q=>{let p=(Object.hasOwn(s.progress,q.id)?s.progress[q.id]:null)??{state:'unseen',consecutive_correct:0,next_review_at:null,revision:q.revision};return {question_id:q.id,domain:q.domain,text:q.text,...p,state:p.state==='review_future'&&Date.parse(p.next_review_at)<=this.now()?'review_due':p.state};});
   const sessions=s.sessions.map(x=>({...x,...this.stats(s,x),questions:undefined,supports:undefined,presented:undefined}));
-  let current=null;if(active){const q=this.question(s,active);if(q){const {correct,explanation,hint,...safe}=q;current={...safe,question_no:active.current+1,presented:active.presented.some(p=>p.question_no===active.current+1),assisted:!!active.supports[q.id],hint:active.supports[q.id]?hint:null};}}
-  return {schema_version:1,server_time:iso(this.now()),experience:s.experience,level:s.level,pack:{version:pack.version,sample:!!pack.sample,question_count:pack.questions.length,domain_counts:Object.fromEntries(['practice','domain_boss','final_boss','diagnostic'].map(pool=>[pool,Object.fromEntries([...new Set(pack.questions.map(q=>q.domain))].map(domain=>[domain,pack.questions.filter(q=>q.pool===pool&&q.domain===domain).length]))])),pools:Object.fromEntries(['practice','domain_boss','final_boss','diagnostic'].map(pool=>[pool,pack.questions.filter(q=>q.pool===pool).length]))},domains:[...new Set(pack.questions.map(q=>q.domain))],progress,sessions:sessions.reverse(),active:active?sessions.find(x=>x.id===active.id):null,current,attempts:s.attempts.map(a=>{const session=s.sessions.find(x=>x.id===a.session_id);const q=s.packs[session.pack_version].questions.find(q=>q.id===a.question_id&&q.revision===a.evaluated_revision);return {...a,text:q.text,domain:q.domain,explanation:q.explanation,correct:q.correct};}).reverse()};
+  let current=null;if(active){const q=this.question(s,active);if(q){const {correct,explanation,choice_explanations,takeaway,hint,...safe}=q;current={...safe,question_no:active.current+1,presented:active.presented.some(p=>p.question_no===active.current+1),assisted:!!active.supports[q.id],hint:active.supports[q.id]?hint:null};}}
+  return {builtin_pack:{version:studyPack.version,title:studyPack.title,question_count:studyPack.questions.length,available:!s.packs[studyPack.version]},schema_version:1,server_time:iso(this.now()),experience:s.experience,level:s.level,pack:{version:pack.version,sample:!!pack.sample,title:pack.title??pack.version,exam_scope:pack.exam_scope??null,sources:[...new Map(pack.questions.flatMap(q=>q.sources??[]).map(source=>[source.source_url??source.url,source])).values()],question_count:pack.questions.length,domain_counts:Object.fromEntries(['practice','domain_boss','final_boss','diagnostic'].map(pool=>[pool,Object.fromEntries([...new Set(pack.questions.map(q=>q.domain))].map(domain=>[domain,pack.questions.filter(q=>q.pool===pool&&q.domain===domain).length]))])),pools:Object.fromEntries(['practice','domain_boss','final_boss','diagnostic'].map(pool=>[pool,pack.questions.filter(q=>q.pool===pool).length]))},domains:[...new Set(pack.questions.map(q=>q.domain))],progress,sessions:sessions.reverse(),active:active?sessions.find(x=>x.id===active.id):null,current,attempts:s.attempts.map(a=>{const session=s.sessions.find(x=>x.id===a.session_id);const q=s.packs[session.pack_version].questions.find(q=>q.id===a.question_id&&q.revision===a.evaluated_revision);return {...a,...this.review(q),correct:q.correct};}).reverse()};
  }
  backup(){const payload={schema_version:1,backup_id:randomUUID(),created_at:iso(this.now()),state:this.load(),commands:this.db.prepare('SELECT * FROM commands').all()};return {...payload,signature:createHmac('sha256',this.key).update(JSON.stringify(payload)).digest('hex')};}
  restore(s,b){

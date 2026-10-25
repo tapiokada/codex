@@ -1,13 +1,22 @@
-const items = [
- ['AI の基本','機械学習モデルの学習に用いなかったデータで性能を評価する主な目的は何ですか？',['未知のデータへの汎化性能を確認する','学習データの件数を増やす','モデルのパラメーターを直接更新する','入力データを暗号化する'],[0],'学習に未使用のテストデータで、未知の入力に対しても適切に予測できるか確認します。','学習済みの問題を覚えているだけでは十分でしょうか？'],
- ['生成 AI','生成 AI におけるグラウンディングの目的は何ですか？',['外部の信頼できる情報に回答を結び付ける','すべての回答をランダムにする','モデルのサイズを必ず小さくする','ネットワーク通信を禁止する'],[0],'グラウンディングは、参照資料などの根拠に基づいて回答を生成する手法です。','回答の根拠に注目しましょう。'],
- ['責任ある AI','責任ある AI の実践として適切なものをすべて選んでください。',['集団ごとの性能差を評価する','利用者に AI の限界を説明する','個人情報を無制限に収集する','判断過程を必ず隠す'],[0,1],'公平性の評価と透明性の確保は、責任ある AI に必要な取り組みです。','公平性と透明性の両方を考えましょう。'],
- ['自然言語処理','文章が肯定的か否定的かを判定するタスクはどれですか？',['感情分析','画像分類','音声合成','物体検出'],[0],'感情分析は、テキストに表れる感情や評価の傾向を分析します。','テキストから読み取る「気持ち」が鍵です。'],
- ['コンピューター ビジョン','画像内の複数の物体について、種類と位置を特定するタスクはどれですか？',['物体検出','翻訳','回帰','音声認識'],[0],'物体検出では、物体のクラスとバウンディングボックスなどの位置情報を返します。','分類だけでなく、位置も必要です。'],
- ['生成 AI','RAG の検索段階で行う処理として最も適切なものはどれですか？',['質問に関連する文書を取得する','毎回モデルを最初から学習する','すべての質問を削除する','生成結果だけを暗号化する'],[0],'RAG は関連情報を検索し、それをコンテキストとして生成モデルに渡します。','Retrieval は「検索」を意味します。'],
- ['AI の基本','教師あり学習のデータに通常必要なものはどれですか？',['入力と対応する正解ラベル','画像だけ','ラベルのない入力だけ','暗号鍵だけ'],[0],'教師あり学習では、入力と正解の対応を学習します。','モデルに正解を教える学習です。'],
- ['責任ある AI','AI システムの安全性を高める行動をすべて選んでください。',['想定外の入力でテストする','運用後の品質を監視する','一度公開したら検証しない','失敗を常に利用者の責任にする'],[0,1],'公開前のテストと公開後の継続的な監視の両方が必要です。','運用開始は検証の終わりではありません。'],
- ['自然言語処理','文章から人名や組織名を抽出するタスクはどれですか？',['固有表現認識','音声合成','画像生成','次元削減'],[0],'固有表現認識では、人名、組織、場所、日時などのエンティティを抽出します。','文章内の固有名詞に注目します。'],
- ['コンピューター ビジョン','画像内の文字を読み取る技術はどれですか？',['OCR','RAG','音声合成','クラスタリング'],[0],'OCR（光学文字認識）は、画像やスキャンした文書から文字を抽出します。','Optical Character Recognition の略です。']
-];
-export const samplePack = { version: 'SAMPLE-1', schema_version: 1, app_version: 1, sample: true, questions: ['practice','domain_boss','final_boss','diagnostic'].flatMap((pool,p) => items.map((x,i)=>({id:`${pool}-${i+1}`,revision:1,change_type:'initial',pool,domain:x[0],text:x[1],choices:x[2].map((text,j)=>({id:String.fromCharCode(65+j),text})),correct:x[3].map(j=>String.fromCharCode(65+j)),explanation:x[4],hint:x[5],type:x[3].length>1?'multiple':'single'}))) };
+import sources from './content/sources.json' with { type: 'json' };
+import { topics } from './content/scenarios.js';
+// Stable, disjoint pools. Moving/rewording a question requires a new pack revision.
+const pools=['practice','domain_boss','practice','practice','practice','domain_boss','final_boss','diagnostic'];
+export const studyPack = {
+ version:'LEARN-SCENARIOS-2026-10-26-1',schema_version:1,app_version:1,sample:false,
+ title:'Microsoft Learn 実務シナリオ集',authorship:'original_practice',
+ exam_scope:{exam:'AI-103',status:'not_verified',checked_at:'2026-10-26',note:'Microsoft Learnの公式教材を確認した独自問題です。AI-103の最新の評価スキル・配点との照合は未完了です。実際の試験問題の転載ではありません。'},
+ questions:topics.flatMap((topic,t)=>topic.questions.map((row,i)=>{
+  const [objective,text,options,correctIndexes,sourceIds,takeaway]=row;
+  // Distribute correct answers across A-D without duplicating question content.
+  const rotation=(t+i)%4;
+  const ordered=options.map((_,j)=>({item:options[(j+rotation)%4],original:(j+rotation)%4,id:String.fromCharCode(65+j)}));
+  const pool=pools[i];
+  return {id:`LEARN-${String(t+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`,revision:1,change_type:'initial',pool,domain:topic.domain,objective,text,
+   type:correctIndexes.length>1?'multiple':'single',difficulty:pool.includes('boss')?'advanced':'intermediate',
+   choices:ordered.map(o=>({id:o.id,text:o.item[0]})),correct:ordered.filter(o=>correctIndexes.includes(o.original)).map(o=>o.id),
+   choice_explanations:Object.fromEntries(ordered.map(o=>[o.id,o.item[1]])),
+   explanation:correctIndexes.map(n=>options[n][1]).join('\n'),takeaway,
+   hint:`判断の軸：${takeaway}`,sources:sourceIds.map(id=>sources[id])};
+ }))
+};

@@ -1,0 +1,1 @@
+export const legacyPack={version:'SAMPLE-1',schema_version:1,app_version:1,sample:true,questions:[{id:'practice-legacy',revision:1,change_type:'initial',pool:'practice',domain:'AI の基本',text:'旧サンプル問題',choices:[{id:'A',text:'正答'},{id:'B',text:'誤答'}],correct:['A'],explanation:'旧問題の解説',hint:'旧問題のヒント',type:'single'}]};
