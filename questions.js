@@ -2,6 +2,7 @@ import sources from './content/sources.json' with { type: 'json' };
 import officialScope from './content/official-scope.json' with { type: 'json' };
 import { topics } from './content/scenarios.js';
 import { expansion } from './content/expansion.js';
+import { reviseDistractors } from './content/distractors.js';
 const pools=['practice','domain_boss','practice','practice','practice','domain_boss','final_boss','diagnostic'];
 const legacyObjectives=[
  ['plan-02','plan-12','plan-07','plan-01','plan-02','plan-06','plan-02','plan-12'],
@@ -35,4 +36,6 @@ for(const [domain,counts]of Object.entries(quotas)){
  if(qs.length!==counts.reduce((a,b)=>a+b,0))throw Error(`Invalid practice count: ${domain}`);
  let offset=0;for(let i=0;i<3;i++){for(const q of qs.slice(offset,offset+counts[i]))q.practice_set=String(i+1);offset+=counts[i];}
 }
-export const studyPack={version:'LEARN-PRACTICE-150-2026-10-26-1',schema_version:1,app_version:1,sample:false,title:'AI-103 公式範囲対応・通常戦150問',authorship:'original_practice',exam_scope:officialScope,questions};
+export const previousStudyPack={version:'LEARN-PRACTICE-150-2026-10-26-1',schema_version:1,app_version:1,sample:false,title:'AI-103 公式範囲対応・通常戦150問',authorship:'original_practice',exam_scope:officialScope,questions};
+
+export const studyPack={...previousStudyPack,version:'LEARN-PRACTICE-150-2026-10-28-2',title:'AI-103 通常戦150問・選択肢強化版',questions:reviseDistractors(questions)};

@@ -36,7 +36,7 @@ test('answer details never leak in a current question; accepted answers return a
  for(const q of studyPack.questions){
   const e=new Engine(':memory:',{initialPack:{...studyPack,questions:[q]}}),b=begin(e,q.pool);
   const current=e.snapshot().current;
-  for(const secret of ['correct','explanation','choice_explanations','takeaway'])assert.equal(current[secret],undefined,`${q.id}/${secret}`);
+  for(const secret of ['correct','explanation','choice_explanations','takeaway','distractor_review'])assert.equal(current[secret],undefined,`${q.id}/${secret}`);
   assert.equal(current.hint,null);
   const r=cmd(e,{action:'answer',...b,selected:q.correct});assert.equal(r.status,200);assert.equal(r.attempt.result,'complete_correct');assert.deepEqual(r.choice_explanations,q.choice_explanations);assert.deepEqual(r.sources,q.sources);
   const history=e.snapshot().attempts[0];assert.deepEqual(history.choice_explanations,q.choice_explanations);assert.equal(history.objective,q.objective);
@@ -94,5 +94,5 @@ test('v1.1 pack upgrades without resetting prior experience, progress or archive
  assert.equal(cmd(e,{action:'answer',...b,selected:old.correct}).status,200);const before=e.load(),xp=before.experience,progress=structuredClone(before.progress);
  assert.equal(cmd(e,{action:'import',pack:studyPack}).status,200);assert.equal(e.load().experience,xp);assert.deepEqual(e.load().progress,progress);
  assert.equal(e.snapshot().attempts[0].evaluated_revision,1);assert.equal(e.snapshot().attempts[0].text,old.text);assert.ok(e.load().packs[previousPack.version]);
- const current=studyPack.questions.find(q=>q.id===old.id);assert.equal(current.revision,2);assert.equal(current.change_type,'typographic');e.db.close();
+ const current=studyPack.questions.find(q=>q.id===old.id);assert.equal(current.revision,3);assert.equal(current.change_type,'semantic');e.db.close();
 });
